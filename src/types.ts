@@ -1,9 +1,10 @@
 import type Actor from "./actor";
 import type { Timer } from "./performance";
 import type WorkerDispatch from "./worker-dispatch";
+import type { Polygon, MultiPolygon, Feature, Position } from 'geojson';
 
 /** Scheme used to map pixel rgb values elevations. */
-export type Encoding = "terrarium" | "mapbox";
+export type Encoding = "terrarium" | "mapbox" | "terrarium-raw";
 export interface IsTransferrable {
   transferrables: Transferable[];
 }
@@ -28,6 +29,56 @@ export interface FetchResponse {
   data: Blob;
   expires?: string;
   cacheControl?: string;
+}
+
+/** Configuration for terrain-based contour splitting */
+export interface TerrainSplitOptions {
+  /** URL pattern for vector tiles containing terrain polygons */
+  vectorTileUrl?: string;
+  
+  /** Source layer name in vector tiles (default: 'natural') */
+  vectorSourceLayer?: string;
+  
+  /** Mapping of terrain categories to natural tag values */
+  vectorTerrainTypes?: {
+    glacier?: string[];
+    rock?: string[];
+  };
+}
+
+/** Polygon extracted from vector tile */
+export interface TerrainPolygon {
+  /** GeoJSON geometry in tile coordinates */
+  geometry: Polygon | MultiPolygon;
+  
+  /** Original properties from vector tile */
+  properties: {
+    type?: string;
+    subtype?: string;
+    [key: string]: any;
+  };
+  
+  /** Categorized terrain type */
+  terrainType: 'glacier' | 'rock' | 'unknown';
+}
+
+/** Parsed vector tile with extracted polygons */
+export interface ParsedVectorTile {
+  polygons: TerrainPolygon[];
+}
+
+/** Contour line segment with terrain classification */
+export interface ClassifiedContourSegment {
+  /** Line coordinates [x1, y1, x2, y2, ...] */
+  geometry: number[];
+  
+  /** Terrain type this segment lies on */
+  terrainType: 'normal' | 'glacier' | 'rock';
+}
+
+/** Result of splitting contours by terrain */
+export interface SplitContoursResult {
+  [elevation: number]: ClassifiedContourSegment[];
 }
 
 /** Parameters to use when creating a contour vector tile from raw elevation data */
@@ -71,8 +122,22 @@ export interface GlobalContourTileOptions extends ContourTileOptions {
   thresholds: { [n: number]: number | number[] };
 }
 
+// Add terrain split options to existing option types
+export interface GlobalContourTileOptions extends TerrainSplitOptions {
+  // ... existing properties
+  multiplier?: number;
+  thresholds: { [n: number]: number | number[] };
+  // etc.
+}
+
 export interface IndividualContourTileOptions extends ContourTileOptions {
   levels: number[];
+}
+
+export interface IndividualContourTileOptions extends TerrainSplitOptions {
+  // ... existing properties
+  levels: number[];
+  // etc.
 }
 
 export interface Image {
@@ -138,6 +203,12 @@ export interface DemManager {
     abortController: AbortController,
     timer?: Timer,
   ): Promise<ContourTile>;
+  fetchVectorTile(
+    z: number,
+    x: number,
+    y: number,
+    abortController: AbortController,
+  ): Promise<ParsedVectorTile>;
 }
 
 export type GetTileFunction = (
@@ -160,7 +231,8 @@ export type DemManagerRequiredInitializationParameters = {
 };
 
 export type DemManagerInitizlizationParameters =
-  DemManagerRequiredInitializationParameters & {
+  DemManagerRequiredInitializationParameters & 
+  TerrainSplitOptions & {
     decodeImage?: DecodeImageFunction;
     getTile?: GetTileFunction;
     actor?: Actor<WorkerDispatch>;

@@ -41,6 +41,9 @@
     "dist/*",
     "src/"
   ],
+  "dependencies": {
+    "@turf/turf": "^7.0.0"
+  },
   "devDependencies": {
     "@eslint/eslintrc": "3.2.0",
     "@eslint/js": "9.38.0",
@@ -57,7 +60,6 @@
     "@types/pbf": "3.0.5",
     "@types/pngjs": "6.0.5",
     "benchmark": "2.1.4",
-    "canvas": "2.11.2",
     "eslint": "9.38.0",
     "eslint-config-prettier": "10.0.1",
     "jest": "29.7.0",

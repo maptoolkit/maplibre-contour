@@ -36,18 +36,36 @@ function decodeThresholds(thresholds: string): {
 
 export function encodeOptions({
   thresholds,
+  vectorTileUrl,
+  vectorSourceLayer,
+  vectorTerrainTypes,
   ...rest
 }: GlobalContourTileOptions): string {
-  return sortedEntries({ thresholds: encodeThresholds(thresholds), ...rest })
-    .map(
-      ([key, value]) =>
-        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+  const params: any = {
+    thresholds: encodeThresholds(thresholds),
+    ...rest
+  };
+  
+  // Only include vector tile params if provided
+  if (vectorTileUrl) {
+    params.vectorTileUrl = vectorTileUrl;
+  }
+  if (vectorSourceLayer) {
+    params.vectorSourceLayer = vectorSourceLayer;
+  }
+  if (vectorTerrainTypes) {
+    params.vectorTerrainTypes = JSON.stringify(vectorTerrainTypes);
+  }
+  
+  return sortedEntries(params)
+    .map(([key, value]) =>
+      `${encodeURIComponent(key)}=${encodeURIComponent(value)}`
     )
     .join("&");
 }
 
 export function decodeOptions(options: string): GlobalContourTileOptions {
-  return Object.fromEntries(
+  const parsed = Object.fromEntries(
     options
       .replace(/^.*\?/, "")
       .split("&")
@@ -55,6 +73,7 @@ export function decodeOptions(options: string): GlobalContourTileOptions {
         const parts = part.split("=").map(decodeURIComponent);
         const k = parts[0] as keyof GlobalContourTileOptions;
         let v: any = parts[1];
+        
         switch (k) {
           case "thresholds":
             v = decodeThresholds(v);
@@ -64,10 +83,16 @@ export function decodeOptions(options: string): GlobalContourTileOptions {
           case "overzoom":
           case "buffer":
             v = Number(v);
+            break;
+          case "vectorTerrainTypes":
+            v = JSON.parse(v);
+            break;
         }
         return [k, v];
-      }),
+      })
   ) as any as GlobalContourTileOptions;
+  
+  return parsed;
 }
 
 export function encodeIndividualOptions(

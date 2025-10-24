@@ -11,6 +11,7 @@ import type {
   Encoding,
   FetchResponse,
   IndividualContourTileOptions,
+  ParsedVectorTile,
 } from "./types";
 import { prepareDemTile } from "./utils";
 
@@ -109,5 +110,39 @@ export default class RemoteDemManager implements DemManager {
       x,
       y,
       options,
+    );
+  
+  fetchVectorTile = (
+    z: number,
+    x: number,
+    y: number,
+    abortController: AbortController,
+  ): Promise<ParsedVectorTile> =>
+    this.actor.send(
+      "fetchVectorTile",
+      [],
+      abortController,
+      undefined,
+      this.managerId,
+      z,
+      x,
+      y,
+    );
+
+  fetchVectorTileRaw = (
+    z: number,
+    x: number,
+    y: number,
+    abortController: AbortController,
+  ): Promise<ArrayBuffer> =>
+    this.actor.send(
+      "fetchVectorTileRaw",
+      [],
+      abortController,
+      undefined,
+      this.managerId,
+      z,
+      x,
+      y,
     );
 }

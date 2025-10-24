@@ -6,6 +6,7 @@ import type {
   IndividualContourTileOptions,
   InitMessage,
   TransferrableDemTile,
+  ParsedVectorTile,
 } from "./types";
 import { prepareContourTile, prepareDemTile } from "./utils";
 
@@ -73,4 +74,24 @@ export default class WorkerDispatch {
         timer,
       ) || noManager(managerId),
     );
+
+  fetchVectorTile = (
+    managerId: number,
+    z: number,
+    x: number,
+    y: number,
+    abortController: AbortController,
+  ): Promise<ParsedVectorTile> =>
+    this.managers[managerId]?.fetchVectorTile(z, x, y, abortController) ||
+    noManager(managerId);
+
+  fetchVectorTileRaw = (
+    managerId: number,
+    z: number,
+    x: number,
+    y: number,
+    abortController: AbortController,
+  ): Promise<ArrayBuffer> =>
+    this.managers[managerId]?.fetchVectorTileRaw(z, x, y, abortController) ||
+    noManager(managerId);
 }

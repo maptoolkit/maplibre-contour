@@ -93,7 +93,9 @@ const used = new Set<string>();
 export class DemSource {
   sharedDemProtocolId: string;
   contourProtocolId: string;
+  vectorTileProtocolId: string;
   contourProtocolUrlBase: string;
+  vectorTileProtocolUrl: string;
   manager: DemManager;
   sharedDemProtocolUrl: string;
   timingCallbacks: Array<(timing: Timing) => void> = [];
@@ -107,6 +109,14 @@ export class DemSource {
     worker = true,
     timeoutMs = 10_000,
     actor,
+    
+    // NEW: Vector tile configuration
+    vectorTileUrl,
+    vectorSourceLayer = 'natural',
+    vectorTerrainTypes = {
+      glacier: ['glacier'],
+      rock: ['rock', 'bare_rock', 'scree']
+    }
   }: {
     /** Remote DEM tile url using `{z}` `{x}` and `{y}` placeholders */
     url: string;
@@ -121,6 +131,14 @@ export class DemSource {
     /** Handle requests in a shared web worker to reduce UI-thread jank */
     worker?: boolean;
     actor?: Actor<WorkerDispatch>;
+    
+    // NEW parameters
+    vectorTileUrl?: string;
+    vectorSourceLayer?: string;
+    vectorTerrainTypes?: {
+      glacier?: string[];
+      rock?: string[];
+    };
   }) {
     let protocolPrefix = id;
     let i = 1;
@@ -130,8 +148,12 @@ export class DemSource {
     used.add(protocolPrefix);
     this.sharedDemProtocolId = `${protocolPrefix}-shared`;
     this.contourProtocolId = `${protocolPrefix}-contour`;
+    this.vectorTileProtocolId = `${protocolPrefix}-vector`;
     this.sharedDemProtocolUrl = `${this.sharedDemProtocolId}://{z}/{x}/{y}`;
     this.contourProtocolUrlBase = `${this.contourProtocolId}://{z}/{x}/{y}`;
+    this.vectorTileProtocolUrl = vectorTileUrl 
+      ? `${this.vectorTileProtocolId}://{z}/{x}/{y}` 
+      : '';
     const ManagerClass = worker ? RemoteDemManager : LocalDemManager;
     this.manager = new ManagerClass({
       demUrlPattern: url,
@@ -140,6 +162,11 @@ export class DemSource {
       maxzoom,
       timeoutMs,
       actor,
+      
+      // NEW: Pass through vector tile config
+      vectorTileUrl,
+      vectorSourceLayer,
+      vectorTerrainTypes
     });
   }
 
@@ -172,6 +199,9 @@ export class DemSource {
   }) => {
     maplibre.addProtocol(this.sharedDemProtocolId, this.sharedDemProtocol);
     maplibre.addProtocol(this.contourProtocolId, this.contourProtocol);
+    if (this.vectorTileProtocolUrl) {
+      maplibre.addProtocol(this.vectorTileProtocolId, this.vectorTileProtocol);
+    }
   };
 
   parseUrl(url: string): [number, number, number] {
@@ -234,7 +264,10 @@ export class DemSource {
         timer,
       );
       timing = timer.finish(request.url);
-      return { data: data.arrayBuffer };
+      // Create a copy to avoid detached ArrayBuffer errors when MapLibre transfers it
+      // The cached version keeps the original, each request gets a fresh copy
+      const copy = data.arrayBuffer.slice(0);
+      return { data: copy };
     } catch (error) {
       timing = timer.error(request.url);
       throw error;
@@ -244,6 +277,39 @@ export class DemSource {
   };
 
   contourProtocol: V3OrV4Protocol = v3compat(this.contourProtocolV4);
+  
+  /**
+   * Callback to serve vector tiles through a custom protocol (like DEM tiles)
+   * This allows MapLibre to use the same cached tiles for both rendering and contour splitting
+   */
+  vectorTileProtocolV4: AddProtocolAction = async (
+    request: RequestParameters,
+    abortController: AbortController,
+  ) => {
+    const [z, x, y] = this.parseUrl(request.url);
+    
+    // Use the LocalDemManager's raw cache to fetch the PBF data
+    const manager = this.manager as any;
+    
+    if (!manager.fetchVectorTileRaw) {
+      return { data: new ArrayBuffer(0) };
+    }
+    
+    try {
+      // This will use the shared cache - only one network request!
+      const arrayBuffer = await manager.fetchVectorTileRaw(z, x, y, abortController);
+      
+      return {
+        data: arrayBuffer,
+        cacheControl: 'max-age=432000', // 5 days
+        expires: undefined,
+      };
+    } catch (error) {
+      return { data: new ArrayBuffer(0) };
+    }
+  };
+
+  vectorTileProtocol: V3OrV4Protocol = v3compat(this.vectorTileProtocolV4);
   sharedDemProtocol: V3OrV4Protocol = v3compat(this.sharedDemProtocolV4);
 
   /**

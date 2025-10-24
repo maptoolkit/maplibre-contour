@@ -16,6 +16,9 @@ import type {
 } from "./types";
 import encodeVectorTile, { GeomType } from "./vtpbf";
 import { Timer } from "./performance";
+import { VectorTileLoader } from './vector-tile-loader';
+import { ContourSplitter } from './contour-splitter';
+import type { ParsedVectorTile, SplitContoursResult } from './types';
 
 const defaultGetTile: GetTileFunction = async (
   url: string,
@@ -42,6 +45,13 @@ export class LocalDemManager implements DemManager {
   tileCache: AsyncCache<string, FetchResponse>;
   parsedCache: AsyncCache<string, DemTile>;
   contourCache: AsyncCache<string, ContourTile>;
+
+  // NEW: Vector tile support
+  vectorTileCache: AsyncCache<string, ParsedVectorTile>;
+  vectorTileRawCache: AsyncCache<string, ArrayBuffer>; // Cache raw PBF data
+  vectorTileLoader: VectorTileLoader;
+  contourSplitter: ContourSplitter;
+
   demUrlPattern: string;
   encoding: Encoding;
   maxzoom: number;
@@ -54,6 +64,17 @@ export class LocalDemManager implements DemManager {
     this.tileCache = new AsyncCache(options.cacheSize);
     this.parsedCache = new AsyncCache(options.cacheSize);
     this.contourCache = new AsyncCache(options.cacheSize);
+
+    // NEW: Vector tile cache and utilities
+    this.vectorTileCache = new AsyncCache(options.cacheSize);
+    this.vectorTileRawCache = new AsyncCache(options.cacheSize);
+    this.vectorTileLoader = new VectorTileLoader(
+      options.vectorTileUrl,
+      options.vectorSourceLayer,
+      options.vectorTerrainTypes
+    );
+    this.contourSplitter = new ContourSplitter();
+
     this.timeoutMs = options.timeoutMs;
     this.demUrlPattern = options.demUrlPattern;
     this.encoding = options.encoding;
@@ -154,6 +175,71 @@ export class LocalDemManager implements DemManager {
     return HeightTile.fromRawDem(tile).split(subZ, x % div, y % div);
   }
 
+  // NEW: Fetch vector tile with caching
+  fetchVectorTile(
+    z: number,
+    x: number,
+    y: number,
+    parentAbortController: AbortController
+  ): Promise<ParsedVectorTile> {
+    if (!this.vectorTileLoader.isEnabled()) {
+      return Promise.resolve({ polygons: [] });
+    }
+
+    const url = this.vectorTileLoader['vectorTileUrlPattern']!
+      .replace('{z}', z.toString())
+      .replace('{x}', x.toString())
+      .replace('{y}', y.toString());
+
+    return this.vectorTileCache.get(
+      url,
+      async (_, childAbortController) => {
+        // Fetch raw PBF (will be cached)
+        const arrayBuffer = await this.fetchVectorTileRaw(z, x, y, childAbortController);
+        // Parse it
+        return this.vectorTileLoader.parseVectorTile(arrayBuffer, z, x, y);
+      },
+      parentAbortController
+    );
+  }
+
+  // NEW: Fetch raw vector tile PBF data (for MapLibre rendering)
+  fetchVectorTileRaw(
+    z: number,
+    x: number,
+    y: number,
+    parentAbortController: AbortController
+  ): Promise<ArrayBuffer> {
+    if (!this.vectorTileLoader.isEnabled()) {
+      return Promise.resolve(new ArrayBuffer(0));
+    }
+
+    const url = this.vectorTileLoader['vectorTileUrlPattern']!
+      .replace('{z}', z.toString())
+      .replace('{x}', x.toString())
+      .replace('{y}', y.toString());
+
+    return this.vectorTileRawCache.get(
+      url,
+      async (_, childAbortController) => {
+        const response = await fetch(url, {
+          signal: childAbortController.signal
+        });
+        
+        if (!response.ok) {
+          return new ArrayBuffer(0);
+        }
+        
+        return await response.arrayBuffer();
+      },
+      parentAbortController
+    ).then(arrayBuffer => {
+      // Clone the ArrayBuffer to prevent detachment issues
+      // when the same buffer is used multiple times
+      return arrayBuffer.slice(0);
+    });
+  }
+
   fetchContourTile(
     z: number,
     x: number,
@@ -227,31 +313,133 @@ export class LocalDemManager implements DemManager {
         );
 
         mark?.();
+
+        // ========== NEW CODE: Split by terrain polygons ==========
+        let finalIsolines: SplitContoursResult | { [elevation: number]: number[][] };
+
+        if (this.vectorTileLoader.isEnabled()) {
+          try {
+            const fetchStart = performance.now();
+            
+            // Fetch vector tile for this coordinate
+            const vectorTile = await this.fetchVectorTile(
+              z, x, y,
+              childAbortController
+            );
+            
+            const fetchTime = performance.now() - fetchStart;
+            console.log(`[Performance] Tile ${z}/${x}/${y}: vector fetch=${fetchTime.toFixed(1)}ms, polygons=${vectorTile.polygons.length}`);
+
+            if (vectorTile.polygons.length > 0) {
+              const splitStart = performance.now();
+              
+              // Split contours by polygons
+              finalIsolines = this.contourSplitter.splitContours(
+                isolines,
+                vectorTile.polygons,
+                extent,
+                z
+              );
+              
+              const splitTime = performance.now() - splitStart;
+              console.log(`[Performance] Tile ${z}/${x}/${y}: split=${splitTime.toFixed(1)}ms`);
+            } else {
+              // No polygons found - mark all as normal
+              finalIsolines = this.contourSplitter.splitContours(
+                isolines,
+                [],
+                extent,
+                z
+              );
+            }
+          } catch (error) {
+            console.warn('Error during terrain splitting:', error);
+            // Fallback: mark all as normal
+            finalIsolines = this.contourSplitter.splitContours(
+              isolines,
+              [],
+              extent,
+              z
+            );
+          }
+        } else {
+          // Vector tiles not configured - use original isolines
+          finalIsolines = isolines;
+        }
+
         const result = encodeVectorTile({
           extent,
           layers: {
             [contourLayer]: {
-              features: Object.entries(isolines).map(([eleString, geom]) => {
-                const ele = Number(eleString);
-                return {
-                  type: GeomType.LINESTRING,
-                  geometry: geom,
-                  properties: {
-                    [elevationKey]: ele,
-                    [levelKey]: Math.max(
-                      ...levels.map((l, i) => (ele % l === 0 ? i : 0)),
-                    ),
-                  },
-                };
-              }),
+              features: this.createFeaturesFromIsolines(
+                finalIsolines,
+                levels,
+                elevationKey,
+                levelKey
+              ),
             },
           },
         });
         mark?.();
 
-        return { arrayBuffer: result.slice().buffer };
+        // Return the buffer - will be copied when retrieved from cache if needed
+        return { arrayBuffer: result.buffer as ArrayBuffer };
       },
       parentAbortController,
     );
   }
+
+  // NEW: Create features with terrain_type property
+  private createFeaturesFromIsolines(
+    isolines: SplitContoursResult | { [elevation: number]: number[][] },
+    levels: number[],
+    elevationKey: string,
+    levelKey: string
+  ) {
+    const features: any[] = [];
+
+    for (const [eleString, segments] of Object.entries(isolines)) {
+      const ele = Number(eleString);
+      const level = Math.max(
+        ...levels.map((l, i) => (ele % l === 0 ? i : 0))
+      );
+
+      // Check if segments are classified (have terrainType)
+      if (Array.isArray(segments) && segments.length > 0) {
+        const firstSegment = segments[0];
+        
+        if (typeof firstSegment === 'object' && 'terrainType' in firstSegment) {
+          // Classified segments (SplitContoursResult)
+          for (const segment of segments as any[]) {
+            features.push({
+              type: GeomType.LINESTRING,
+              geometry: [segment.geometry],
+              properties: {
+                [elevationKey]: ele,
+                [levelKey]: level,
+                terrain_type: segment.terrainType
+              }
+            });
+          }
+        } else {
+          // Original isolines (number[][])
+          for (const geom of segments as number[][]) {
+            features.push({
+              type: GeomType.LINESTRING,
+              geometry: [geom],
+              properties: {
+                [elevationKey]: ele,
+                [levelKey]: level,
+                terrain_type: 'normal'
+              }
+            });
+          }
+        }
+      }
+    }
+
+    return features;
+  }
 }
+
+

@@ -184,10 +184,13 @@ export function decodeParsedImage(
   const decoder: (r: number, g: number, b: number) => number =
     encoding === "mapbox"
       ? (r, g, b) => -10000 + (r * 256 * 256 + g * 256 + b) * 0.1
-      : (r, g, b) => r * 256 + g + b / 256 - 32768;
+      : encoding === "terrarium-raw"
+      ? (r, g, b) => r * 256 + g + b / 256  // Terrarium without -32768 offset
+      : (r, g, b) => r * 256 + g + b / 256 - 32768;  // Standard terrarium
   const data = new Float32Array(width * height);
   for (let i = 0; i < input.length; i += 4) {
     data[i / 4] = decoder(input[i], input[i + 1], input[i + 2]);
   }
+  
   return { width, height, data };
 }

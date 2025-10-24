@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MapLibre Contour - Custom Demo</title>
+    <meta
+      name="viewport"
+      content="initial-scale=1,maximum-scale=1,user-scalable=no"
+    />
+    <script src="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.js"></script>
+    <!-- Using local build with terrain-splitting functionality -->
+    <script src="dist/index.min.js"></script>
+    <link
+      href="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      #map {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 100%;
+      }
+      .info-panel {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: white;
+        padding: 10px 15px;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        max-width: 250px;
+      }
+      .info-panel h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+      }
+      .info-panel p {
+        margin: 5px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div class="info-panel">
+      <h3>Custom Terrain Setup</h3>
+      <p><strong>DEM Source:</strong> MapToolkit Terrain RGB</p>
+      <p><strong>Vector Tiles:</strong> MTK Contours & Bathymetry</p>
+      <p>Replace __APIKEY__ with your API key</p>
+    </div>
+    <script>
+      // Replace with your actual API key
+      const API_KEY = "toursprung";
+      
+      // Setup DEM source with your Terrain RGB tiles and vector tile terrain splitting
+      var demSource = new mlcontour.DemSource({
+        url: `https://vtc.maptoolkit.net/terrainrgb/{z}/{x}/{y}.webp?api_key=${API_KEY}`,
+        encoding: "terrarium", // adjust if your tiles use "mapbox" encoding
+        maxzoom: 14, // adjust based on your tile source's maximum zoom
+        worker: true, // offload processing to web worker
+        cacheSize: 100, // cache 100 most recent tiles
+        
+        // Enable terrain-based contour splitting
+        vectorTileUrl: `https://vtc.maptoolkit.net/mtk-contours-bathymetry/{z}/{x}/{y}.pbf?api_key=${API_KEY}`,
+        vectorSourceLayer: 'natural',
+        vectorTerrainTypes: {
+          glacier: ['ice'],      // type=ice for glaciers
+          rock: ['rock']         // type=rock for rock/scree
+        }
+      });
+
+      // Register protocols with MapLibre
+      demSource.setupMaplibre(maplibregl);
+
+      var map = new maplibregl.Map({
+        container: "map",
+        zoom: 10,
+        center: [11.0, 47.0], // Alps region - adjust to your area of interest
+        hash: true, // enable URL hash for sharing map position
+        style: {
+          version: 8,
+          glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+          sources: {
+            // Base map tiles
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution: '© OpenStreetMap contributors'
+            },
+            // DEM for hillshading - shares cached tiles with contours
+            dem: {
+              type: "raster-dem",
+              encoding: "terrarium", // adjust if needed
+              tiles: [demSource.sharedDemProtocolUrl],
+              maxzoom: 14,
+              tileSize: 256,
+            },
+            // Your existing vector tile contours
+            "mtk-contours": {
+              type: "vector",
+              tiles: [`https://vtc.maptoolkit.net/mtk-contours-bathymetry/{z}/{x}/{y}.pbf?api_key=${API_KEY}`],
+              maxzoom: 16,
+            },
+            // Generated contours from DEM (optional - for comparison)
+            "generated-contours": {
+              type: "vector",
+              tiles: [
+                demSource.contourProtocolUrl({
+                  multiplier: 1, // keep in meters, or use 3.28084 for feet
+                  thresholds: {
+                    // zoom: [minor interval, major interval] in meters
+                    10: [100, 500],
+                    11: [50, 250],
+                    12: [50, 250],
+                    13: [25, 100],
+                    14: [10, 50],
+                    15: [10, 50],
+                  },
+                  elevationKey: "ele",
+                  levelKey: "level",
+                  contourLayer: "contours",
+                  extent: 4096,
+                  buffer: 1,
+                }),
+              ],
+              maxzoom: 16,
+            },
+          },
+          layers: [
+            // Base map
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+              paint: {
+                "raster-opacity": 0.3,
+              }
+            },
+            // Hillshade for terrain visualization
+            {
+              id: "hills",
+              type: "hillshade",
+              source: "dem",
+              paint: {
+                "hillshade-exaggeration": 0.6,
+                "hillshade-shadow-color": "#000000",
+                "hillshade-illumination-direction": 315,
+              },
+            },
+            {
+                id: "nature_bare_rock",
+                source: "mtk-contours",
+                "source-layer": "natural",
+                type: "fill",
+                filter: ["==", ["get", "subtype"], "bare_rock"],
+                minzoom: 10,
+                maxzoom: 22,
+                layout: { visibility: "visible" },
+                paint: {
+                    "fill-opacity": ["step", ["zoom"], 0.6, 15, 0.6, 17, 0.3],
+                    "fill-pattern": "bare_rock"
+                }
+            },
+            // Your existing MTK contour lines            
+            // Generated contours (commented out by default)
+            // Uncomment to compare with your existing contours
+            /*
+            {
+              id: "mtk-contours-lines",
+              type: "line",
+              source: "mtk-contours",
+              "source-layer": "contours", // adjust based on your vector tile layer name
+              paint: {
+                "line-color": "#8B4513",
+                "line-width": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  10, 0.5,
+                  14, 1.5
+                ],
+              },
+              layout: {
+                "line-join": "round",
+                "line-cap": "round",
+              },
+            },
+            // Labels for MTK contours
+            {
+              id: "mtk-contours-labels",
+              type: "symbol",
+              source: "mtk-contours",
+              "source-layer": "contours", // adjust based on your vector tile layer name
+              minzoom: 12,
+              paint: {
+                "text-halo-color": "white",
+                "text-halo-width": 1.5,
+                "text-color": "#8B4513",
+              },
+              layout: {
+                "symbol-placement": "line",
+                "text-anchor": "center",
+                "text-size": 11,
+                "text-field": ["get", "ele"], // adjust based on your elevation property name
+                "text-font": ["Noto Sans Bold"],
+              },
+            },            
+            */
+            // Normal terrain contours (brown)
+            {
+              id: "generated-contours-normal",
+              type: "line",
+              source: "generated-contours",
+              "source-layer": "contours",
+              filter: ["==", ["get", "terrain_type"], "normal"],
+              paint: {
+                "line-color": "#8B4513",
+                "line-width": ["match", ["get", "level"], 1, 1.5, 0.8],
+              },
+              layout: {
+                "line-join": "round",
+              },
+            },
+            // Glacier contours (blue)
+            {
+              id: "generated-contours-glacier",
+              type: "line",
+              source: "generated-contours",
+              "source-layer": "contours",
+              filter: ["==", ["get", "terrain_type"], "glacier"],
+              paint: {
+                "line-color": "#4A90E2",
+                "line-width": ["match", ["get", "level"], 1, 1.5, 0.8],
+              },
+              layout: {
+                "line-join": "round",
+              },
+            },
+            // Rock/scree contours (gray)
+            {
+              id: "generated-contours-rock",
+              type: "line",
+              source: "generated-contours",
+              "source-layer": "contours",
+              filter: ["==", ["get", "terrain_type"], "rock"],
+              paint: {
+                "line-color": "#696969",
+                "line-width": ["match", ["get", "level"], 1, 1.5, 0.8],
+              },
+              layout: {
+                "line-join": "round",
+              },
+            },
+            // Contour labels
+            {
+              id: "generated-contours-labels",
+              type: "symbol",
+              source: "generated-contours",
+              "source-layer": "contours",
+              filter: [">", ["get", "level"], 0],
+              minzoom: 12,
+              paint: {
+                "text-halo-color": "white",
+                "text-halo-width": 1.5,
+                "text-color": [
+                  "match",
+                  ["get", "terrain_type"],
+                  "glacier", "#4A90E2",
+                  "rock", "#696969",
+                  "#8B4513" // normal/default
+                ],
+              },
+              layout: {
+                "symbol-placement": "line",
+                "text-anchor": "center",
+                "text-size": 10,
+                "text-field": ["concat", ["get", "ele"], "m"],
+                "text-font": ["Noto Sans Bold"],
+              },
+            },
+          ],
+        },
+      });
+
+      // Add navigation controls
+      map.addControl(new maplibregl.NavigationControl());
+      
+      // Add scale control
+      map.addControl(new maplibregl.ScaleControl({
+        maxWidth: 200,
+        unit: 'metric'
+      }));
+
+      // Log when map loads
+      map.on('load', () => {
+        console.log('Map loaded successfully');
+        console.log('Available sources:', Object.keys(map.style.sourceCaches));
+      });
+
+      // Error handling
+      map.on('error', (e) => {
+        console.error('Map error:', e);
+      });
+    </script>
+  </body>
+</html>

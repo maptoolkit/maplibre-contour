@@ -33,11 +33,21 @@ export default [
       minifyInternalExports: true,
     },
     onwarn: (message) => {
+      // Ignore circular dependency warnings from third-party dependencies
+      if (message.code === 'CIRCULAR_DEPENDENCY' && message.ids?.some(id => id.includes('node_modules'))) {
+        return;
+      }
       console.error(message);
       throw message;
     },
     treeshake: true,
-    plugins: [nodeResolve, typescript(), commonjs()],
+    plugins: [
+      nodeResolve, 
+      typescript({
+        exclude: ["**/*.test.ts", "**/*.spec.ts"]
+      }), 
+      commonjs()
+    ],
   },
   create("dist/index.cjs", "cjs"),
   create("dist/index.mjs", "esm"),
