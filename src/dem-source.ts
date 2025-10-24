@@ -279,16 +279,19 @@ export class DemSource {
   contourProtocol: V3OrV4Protocol = v3compat(this.contourProtocolV4);
   
   /**
-   * Callback to serve vector tiles through a custom protocol (like DEM tiles)
-   * This allows MapLibre to use the same cached tiles for both rendering and contour splitting
+   * Custom protocol handler for serving vector tiles to MapLibre.
+   * This enables sharing the same cached vector tile data between:
+   * - MapLibre's rendering engine (for displaying terrain polygons)
+   * - The contour splitting logic (for terrain-aware contour classification)
+   * 
+   * By using a custom protocol, we avoid duplicate network requests and ensure
+   * both systems use the same cached data.
    */
   vectorTileProtocolV4: AddProtocolAction = async (
     request: RequestParameters,
     abortController: AbortController,
   ) => {
     const [z, x, y] = this.parseUrl(request.url);
-    
-    // Use the LocalDemManager's raw cache to fetch the PBF data
     const manager = this.manager as any;
     
     if (!manager.fetchVectorTileRaw) {
@@ -296,12 +299,11 @@ export class DemSource {
     }
     
     try {
-      // This will use the shared cache - only one network request!
       const arrayBuffer = await manager.fetchVectorTileRaw(z, x, y, abortController);
       
       return {
         data: arrayBuffer,
-        cacheControl: 'max-age=432000', // 5 days
+        cacheControl: 'max-age=432000',
         expires: undefined,
       };
     } catch (error) {

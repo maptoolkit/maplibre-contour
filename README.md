@@ -107,26 +107,54 @@ map.addSource("dem", {
 
 ## Terrain-Based Contour Splitting
 
-You can split contour lines based on underlying terrain types (glaciers, rock/scree) from vector tiles:
+Split contour lines based on underlying terrain types (glaciers, rock/scree) from vector tiles. This enables different styling for contours crossing different terrain types.
+
+### Setup
+
+Configure terrain splitting when creating a `DemSource`:
+
 ```javascript
 const demSource = new mlcontour.DemSource({
   url: 'https://elevation-tiles.s3.amazonaws.com/{z}/{x}/{y}.png',
   encoding: 'terrarium',
   maxzoom: 13,
+  worker: true, // terrain splitting works in both worker and non-worker mode
   
   // Enable terrain-based splitting
   vectorTileUrl: 'https://tiles.example.com/{z}/{x}/{y}.pbf',
-  vectorSourceLayer: 'natural',
+  vectorSourceLayer: 'natural',  // default: 'natural'
   vectorTerrainTypes: {
-    glacier: ['glacier'],
-    rock: ['rock', 'bare_rock', 'scree']
+    glacier: ['ice', 'glacier'],              // default: ['ice', 'glacier']
+    rock: ['rock', 'bare_rock', 'scree']      // default: ['rock', 'bare_rock', 'scree']
   }
+});
+demSource.setupMaplibre(maplibregl);
+```
+
+### Using the Custom Vector Tile Protocol
+
+To avoid duplicate network requests, use the custom protocol for your vector tile source:
+
+```javascript
+map.addSource('terrain-polygons', {
+  type: 'vector',
+  tiles: [demSource.vectorTileProtocolUrl],  // Use custom protocol
+  minzoom: 0,
+  maxzoom: 14
 });
 ```
 
-Contour features will include a `terrain_type` property that you can use to style differently:
+This enables:
+- **Shared caching**: Vector tiles fetched once, used by both MapLibre rendering and contour splitting
+- **No duplicate requests**: One network request per tile instead of two
+- **Worker support**: Works seamlessly with `worker: true` mode
+
+### Styling by Terrain Type
+
+Contour features will include a `terrain_type` property (`'normal'`, `'glacier'`, or `'rock'`):
+
 ```javascript
-// Style normal terrain contours (brown)
+// Normal terrain contours (brown)
 map.addLayer({
   id: 'contours-normal',
   type: 'line',
@@ -134,11 +162,12 @@ map.addLayer({
   'source-layer': 'contours',
   filter: ['==', ['get', 'terrain_type'], 'normal'],
   paint: {
-    'line-color': '#8B4513'
+    'line-color': '#8B4513',
+    'line-width': ['match', ['get', 'level'], 1, 2, 1]
   }
 });
 
-// Style glacier contours (blue)
+// Glacier contours (blue)
 map.addLayer({
   id: 'contours-glacier',
   type: 'line',
@@ -146,11 +175,12 @@ map.addLayer({
   'source-layer': 'contours',
   filter: ['==', ['get', 'terrain_type'], 'glacier'],
   paint: {
-    'line-color': '#4A90E2'
+    'line-color': '#4A90E2',
+    'line-width': ['match', ['get', 'level'], 1, 2, 1]
   }
 });
 
-// Style rock/scree contours (gray)
+// Rock/scree contours (gray)
 map.addLayer({
   id: 'contours-rock',
   type: 'line',
@@ -158,39 +188,61 @@ map.addLayer({
   'source-layer': 'contours',
   filter: ['==', ['get', 'terrain_type'], 'rock'],
   paint: {
-    'line-color': '#696969'
+    'line-color': '#696969',
+    'line-width': ['match', ['get', 'level'], 1, 2, 1]
   }
 });
 ```
 
 ### Configuration Options
 
-- `vectorTileUrl`: URL pattern for vector tiles (e.g., `https://tiles.com/{z}/{x}/{y}.pbf`)
-- `vectorSourceLayer`: Layer name in vector tiles containing terrain polygons (default: `'natural'`)
-- `vectorTerrainTypes`: Object mapping terrain categories to natural tag values:
-  - `glacier`: Array of values treated as glaciers (default: `['glacier']`)
-  - `rock`: Array of values treated as rock/scree (default: `['rock', 'bare_rock', 'scree']`)
+- **`vectorTileUrl`**: URL pattern for vector tiles (e.g., `'https://tiles.com/{z}/{x}/{y}.pbf'`)
+  - Set to `undefined` to disable terrain splitting
+- **`vectorSourceLayer`**: Layer name in vector tiles containing terrain polygons
+  - Default: `'natural'`
+- **`vectorTerrainTypes`**: Object mapping terrain categories to feature property values
+  - `glacier`: Array of values to classify as glaciers (default: `['ice', 'glacier']`)
+  - `rock`: Array of values to classify as rock/scree (default: `['rock', 'bare_rock', 'scree']`)
+  - Features with `type` property matching these values will be used for classification
+  - Features not matching any category are ignored (contours marked as `'normal'`)
 
-### Performance Considerations
+### Performance
 
-- Vector tiles are cached using the same strategy as DEM tiles
-- First load adds ~80ms per tile (fetch + parse vector tile)
-- Cached tiles add ~50ms per tile (polygon splitting only)
-- Memory overhead: ~2MB for 100 cached vector tiles
-- Browser HTTP cache prevents duplicate network requests
+Terrain splitting is highly optimized:
+
+- **Network**: Uses custom protocol to prevent duplicate fetches (~160KB saved per tile)
+- **First load**: ~150-500ms per tile (fetch + parse + split, varies by zoom)
+- **Cached tiles**: ~50-150ms per tile (split only)
+- **Memory**: ~2MB for 100 cached vector tiles
+- **Optimizations**:
+  - Convex hull approximation for zoom levels ≤13 (75-82% fewer vertices)
+  - Grid-based spatial indexing (8×8 cells) for fast polygon lookup
+  - Polygon area filtering to remove noise
+  - Smart sampling (max 20 points per line segment)
+
+Zoom-specific performance (Mont Blanc area, typical case):
+- **Zoom 11**: ~520ms (large glaciers, convex hull used)
+- **Zoom 12**: ~285ms (moderate detail, convex hull + grid index)
+- **Zoom 13**: ~430ms (fine detail, convex hull)
+- **Zoom 14**: ~95ms (full precision, grid index only)
 
 # How it works
 
 <img src="architecture.png" width="500">
 
-[`DemSource.setupMaplibre`](./src/dem-source.ts) uses MapLibre's [`addProtocol`](https://maplibre.org/maplibre-gl-js-docs/api/properties/#addprotocol) utility to register a callback to provide vector tile for the contours source. Each time maplibre requests a vector tile:
+[`DemSource.setupMaplibre`](./src/dem-source.ts) uses MapLibre's [`addProtocol`](https://maplibre.org/maplibre-gl-js-docs/api/properties/#addprotocol) utility to register callbacks to provide vector tiles for the contours source and optionally for vector tiles used in terrain splitting. Each time maplibre requests a contour vector tile:
 
-- [`DemManager`](./src/dem-manager.ts) fetches (and caches) the raster-dem image tile and its neighbors so that contours are continuous across tile boundaries.
-  - When `DemSource` is configured with `worker: true`, it uses [`RemoteDemManager`](./src/remote-dem-manager.ts) to spawn [`worker.ts`](./src/worker.ts) in a web worker. The web worker runs [`LocalDemManager`](./src/dem-manager.ts) locally and uses the [`Actor`](./src/actor.ts) utility to send cancelable requests and responses between the main and worker thread.
+- [`DemManager`](./src/local-dem-manager.ts) fetches (and caches) the raster-dem image tile and its neighbors so that contours are continuous across tile boundaries.
+  - When `DemSource` is configured with `worker: true`, it uses [`RemoteDemManager`](./src/remote-dem-manager.ts) to spawn [`worker.ts`](./src/worker.ts) in a web worker. The web worker runs [`LocalDemManager`](./src/local-dem-manager.ts) locally and uses the [`Actor`](./src/actor.ts) utility to send cancelable requests and responses between the main and worker thread.
 - [`decode-image.ts`](./src/decode-image.ts) decodes the raster-dem image RGB values to meters above sea level for each pixel in the tile.
 - [`HeightTile`](./src/height-tile.ts) stitches those raw DEM tiles into a "virtual tile" that contains the border of neighboring tiles, aligns elevation measurements to the tile grid, and smooths the elevation measurements.
-- [`isoline.ts`](./src/isolines.ts) generates contour isolines from a `HeightTile` using a marching-squares implementation derived from [d3-contour](https://github.com/d3/d3-contour).
-- [`vtpbf.ts`](./src/vtpbf.ts) encodes the contour isolines as mapbox vector tile bytes.
+- [`isolines.ts`](./src/isolines.ts) generates contour isolines from a `HeightTile` using a marching-squares implementation derived from [d3-contour](https://github.com/d3/d3-contour).
+- **Optional terrain splitting**:
+  - [`VectorTileLoader`](./src/vector-tile-loader.ts) fetches and parses vector tiles containing terrain polygons (glaciers, rock, etc.)
+  - [`ContourSplitter`](./src/contour-splitter.ts) classifies contour segments based on which terrain polygon they cross
+  - Uses optimizations like convex hull approximation, grid-based spatial indexing, and polygon area filtering
+  - Custom protocol ensures vector tiles are fetched once and shared between MapLibre rendering and contour splitting
+- [`vtpbf.ts`](./src/vtpbf.ts) encodes the contour isolines (with optional terrain type metadata) as mapbox vector tile bytes.
 
 MapLibre sends that vector tile to its own worker, decodes it, and renders as if it had been generated by a server.
 

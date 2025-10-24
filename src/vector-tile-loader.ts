@@ -3,7 +3,13 @@ import Pbf from 'pbf';
 import type { TerrainPolygon, ParsedVectorTile } from './types';
 
 /**
- * Loads and parses vector tiles, extracting terrain polygons.
+ * Loads and parses vector tiles, extracting terrain polygons for contour splitting.
+ * 
+ * This class handles:
+ * - Parsing Mapbox Vector Tile (MVT) format data
+ * - Extracting polygon features from a specific layer
+ * - Classifying polygons by terrain type (glacier, rock, etc.)
+ * - Converting coordinates to tile-relative positioning
  */
 export class VectorTileLoader {
   private vectorTileUrlPattern?: string;
@@ -30,53 +36,20 @@ export class VectorTileLoader {
   }
 
   /**
-   * Check if vector tile loading is enabled
+   * Check if vector tile loading is enabled (URL pattern is configured)
    */
   isEnabled(): boolean {
     return !!this.vectorTileUrlPattern;
   }
 
   /**
-   * Fetch and parse vector tile, extracting relevant polygons
-   */
-  async fetchAndParse(
-    z: number,
-    x: number,
-    y: number,
-    abortController: AbortController
-  ): Promise<ParsedVectorTile> {
-    if (!this.vectorTileUrlPattern) {
-      return { polygons: [] };
-    }
-
-    const url = this.vectorTileUrlPattern
-      .replace('{z}', z.toString())
-      .replace('{x}', x.toString())
-      .replace('{y}', y.toString());
-
-    try {
-      const response = await fetch(url, {
-        signal: abortController.signal
-      });
-
-      if (!response.ok) {
-        console.warn(`Failed to fetch vector tile ${url}: ${response.status}`);
-        return { polygons: [] };
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      return this.parseVectorTile(arrayBuffer, z, x, y);
-      
-    } catch (error) {
-      // Don't throw - just warn and return empty
-      // Contours will work without polygon splitting
-      console.warn(`Error fetching vector tile ${url}:`, error);
-      return { polygons: [] };
-    }
-  }
-
-  /**
-   * Parse vector tile and extract terrain polygons
+   * Parse vector tile PBF data and extract terrain polygons.
+   * 
+   * @param arrayBuffer Raw PBF data from the vector tile
+   * @param z Tile zoom level
+   * @param x Tile x coordinate  
+   * @param y Tile y coordinate
+   * @returns Parsed polygons with terrain type classification
    */
   parseVectorTile(
     arrayBuffer: ArrayBuffer,

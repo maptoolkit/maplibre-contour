@@ -75,6 +75,10 @@ export default class WorkerDispatch {
       ) || noManager(managerId),
     );
 
+  /**
+   * Fetch and parse vector tile in the worker thread.
+   * Extracts terrain polygons for contour splitting.
+   */
   fetchVectorTile = (
     managerId: number,
     z: number,
@@ -85,6 +89,10 @@ export default class WorkerDispatch {
     this.managers[managerId]?.fetchVectorTile(z, x, y, abortController) ||
     noManager(managerId);
 
+  /**
+   * Fetch raw vector tile PBF data in the worker thread.
+   * Returns raw ArrayBuffer for MapLibre rendering via custom protocol.
+   */
   fetchVectorTileRaw = (
     managerId: number,
     z: number,

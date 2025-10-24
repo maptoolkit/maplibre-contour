@@ -176,11 +176,14 @@ export interface Timing {
 }
 
 /**
- * Holds cached tile state, and exposes `fetchContourTile` which fetches the necessary
- * tiles and returns an encoded contour vector tiles.
+ * Manages fetching, caching, and processing of DEM (elevation) and vector tiles.
+ * Can run in either the main thread (LocalDemManager) or a web worker (RemoteDemManager).
+ * Handles both elevation data for contour generation and vector tiles for terrain-aware splitting.
  */
 export interface DemManager {
   loaded: Promise<any>;
+  
+  /** Fetch raw DEM tile blob */
   fetchTile(
     z: number,
     x: number,
@@ -188,6 +191,8 @@ export interface DemManager {
     abortController: AbortController,
     timer?: Timer,
   ): Promise<FetchResponse>;
+  
+  /** Fetch and decode DEM tile to elevation data */
   fetchAndParseTile(
     z: number,
     x: number,
@@ -195,6 +200,8 @@ export interface DemManager {
     abortController: AbortController,
     timer?: Timer,
   ): Promise<DemTile>;
+  
+  /** Generate contour vector tile from DEM data */
   fetchContourTile(
     z: number,
     x: number,
@@ -203,12 +210,22 @@ export interface DemManager {
     abortController: AbortController,
     timer?: Timer,
   ): Promise<ContourTile>;
+  
+  /** Fetch and parse vector tile for terrain polygon extraction */
   fetchVectorTile(
     z: number,
     x: number,
     y: number,
     abortController: AbortController,
   ): Promise<ParsedVectorTile>;
+  
+  /** Fetch raw vector tile PBF data (for MapLibre rendering via custom protocol) */
+  fetchVectorTileRaw(
+    z: number,
+    x: number,
+    y: number,
+    abortController: AbortController,
+  ): Promise<ArrayBuffer>;
 }
 
 export type GetTileFunction = (

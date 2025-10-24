@@ -112,6 +112,10 @@ export default class RemoteDemManager implements DemManager {
       options,
     );
   
+  /**
+   * Fetch and parse vector tile from the worker thread.
+   * Delegates to LocalDemManager running in the worker.
+   */
   fetchVectorTile = (
     z: number,
     x: number,
@@ -129,6 +133,11 @@ export default class RemoteDemManager implements DemManager {
       y,
     );
 
+  /**
+   * Fetch raw vector tile PBF data from the worker thread.
+   * Delegates to LocalDemManager running in the worker.
+   * Used by the custom protocol to serve tiles to MapLibre.
+   */
   fetchVectorTileRaw = (
     z: number,
     x: number,

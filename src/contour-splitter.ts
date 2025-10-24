@@ -86,18 +86,6 @@ export class ContourSplitter {
       }
     }
 
-    // Log summary
-    const terrainCounts: { normal: number; glacier: number; rock: number } = { normal: 0, glacier: 0, rock: 0 };
-    for (const segments of Object.values(result)) {
-      for (const seg of segments) {
-        if (seg.terrainType === 'normal') terrainCounts.normal++;
-        else if (seg.terrainType === 'glacier') terrainCounts.glacier++;
-        else if (seg.terrainType === 'rock') terrainCounts.rock++;
-      }
-    }
-    const splitTime = performance.now() - startTime;
-    console.log(`[ContourSplitter] ${totalLineCount} lines, ${processedPolygons.length} polygons: index=${indexTime.toFixed(0)}ms, total=${splitTime.toFixed(0)}ms → ${terrainCounts.glacier} glacier, ${terrainCounts.rock} rock, ${terrainCounts.normal} normal`);
-
     return result;
   }
 
@@ -165,7 +153,6 @@ export class ContourSplitter {
     if (processed.length > 0) {
       const vertexReduction = ((1 - totalVerticesAfter / totalVerticesBefore) * 100).toFixed(1);
       const hullInfo = useConvexHull ? `, convex hull=${convexHullCount}` : '';
-      console.log(`[Polygon preprocessing] z${zoom}: ${polygons.length}→${processed.length} polygons (filtered ${filteredCount}), vertices reduced ${vertexReduction}%${hullInfo}`);
     }
     
     return processed;

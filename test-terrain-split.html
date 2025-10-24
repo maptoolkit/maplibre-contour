@@ -124,7 +124,7 @@
               id: "osm",
               type: "raster",
               source: "osm",
-              paint: { "raster-opacity": 0.3 },
+              paint: { "raster-opacity": 0.6 },
               layout: {"visibility": "visible"}
             },
             {
@@ -161,7 +161,7 @@
                 "hillshade-exaggeration": 0.2,
                 "hillshade-shadow-color": "#000000"
               },
-              layout: {"visibility": "none"}
+              layout: {"visibility": "visible"}
             },
             // Normal terrain contours (brown)
             {
@@ -171,7 +171,7 @@
               "source-layer": "contours",
               filter: ["==", ["get", "terrain_type"], "normal"],
               paint: {
-                "line-color": "hsl(36, 0%, 50%)",
+                "line-color": "hsl(36, 40%, 50%)",
                 "line-width": ["match", ["get", "level"], 1, 2, 1],
               },
             },
@@ -195,25 +195,9 @@
               "source-layer": "contours",
               filter: ["==", ["get", "terrain_type"], "rock"],
               paint: {
-                "line-color": "hsl(0, 80%, 61%)",
+                "line-color": "hsl(0, 0%, 61%)",
                 "line-width": ["match", ["get", "level"], 1, 2, 1],
               },
-            },
-            // Tile boundaries for debugging
-            {
-              id: "contour-tile-boundaries",
-              type: "line",
-              source: "contours",
-              "source-layer": "contours",
-              paint: {
-                "line-color": "#FF0000",
-                "line-width": 2,
-                "line-opacity": 0.5
-              },
-              layout: {"visibility": "none"},
-              metadata: {
-                "mapbox:type": "tile-boundaries"
-              }
             },
             // Contour labels
             {

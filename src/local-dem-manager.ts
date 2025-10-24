@@ -175,7 +175,18 @@ export class LocalDemManager implements DemManager {
     return HeightTile.fromRawDem(tile).split(subZ, x % div, y % div);
   }
 
-  // NEW: Fetch vector tile with caching
+  /**
+   * Fetch and parse a vector tile, extracting terrain polygons for contour splitting.
+   * Uses a two-level cache strategy:
+   * 1. Raw PBF data cached in vectorTileRawCache (shared with MapLibre rendering)
+   * 2. Parsed polygon data cached in vectorTileCache (for contour splitting)
+   * 
+   * @param z Tile zoom level
+   * @param x Tile x coordinate
+   * @param y Tile y coordinate
+   * @param parentAbortController Abort controller for cancellation
+   * @returns Parsed vector tile with extracted terrain polygons
+   */
   fetchVectorTile(
     z: number,
     x: number,
@@ -194,16 +205,27 @@ export class LocalDemManager implements DemManager {
     return this.vectorTileCache.get(
       url,
       async (_, childAbortController) => {
-        // Fetch raw PBF (will be cached)
         const arrayBuffer = await this.fetchVectorTileRaw(z, x, y, childAbortController);
-        // Parse it
         return this.vectorTileLoader.parseVectorTile(arrayBuffer, z, x, y);
       },
       parentAbortController
     );
   }
 
-  // NEW: Fetch raw vector tile PBF data (for MapLibre rendering)
+  /**
+   * Fetch raw vector tile PBF data with caching.
+   * This method is used by both:
+   * - MapLibre's rendering engine (via the custom protocol)
+   * - fetchVectorTile (for parsing polygons for contour splitting)
+   * 
+   * The shared cache ensures only one network request is made per tile.
+   * 
+   * @param z Tile zoom level
+   * @param x Tile x coordinate
+   * @param y Tile y coordinate
+   * @param parentAbortController Abort controller for cancellation
+   * @returns Raw PBF ArrayBuffer (cloned to prevent detachment issues)
+   */
   fetchVectorTileRaw(
     z: number,
     x: number,
@@ -235,7 +257,7 @@ export class LocalDemManager implements DemManager {
       parentAbortController
     ).then(arrayBuffer => {
       // Clone the ArrayBuffer to prevent detachment issues
-      // when the same buffer is used multiple times
+      // when the same buffer is used by multiple consumers
       return arrayBuffer.slice(0);
     });
   }
@@ -319,20 +341,13 @@ export class LocalDemManager implements DemManager {
 
         if (this.vectorTileLoader.isEnabled()) {
           try {
-            const fetchStart = performance.now();
-            
             // Fetch vector tile for this coordinate
             const vectorTile = await this.fetchVectorTile(
               z, x, y,
               childAbortController
             );
-            
-            const fetchTime = performance.now() - fetchStart;
-            console.log(`[Performance] Tile ${z}/${x}/${y}: vector fetch=${fetchTime.toFixed(1)}ms, polygons=${vectorTile.polygons.length}`);
 
             if (vectorTile.polygons.length > 0) {
-              const splitStart = performance.now();
-              
               // Split contours by polygons
               finalIsolines = this.contourSplitter.splitContours(
                 isolines,
@@ -340,9 +355,6 @@ export class LocalDemManager implements DemManager {
                 extent,
                 z
               );
-              
-              const splitTime = performance.now() - splitStart;
-              console.log(`[Performance] Tile ${z}/${x}/${y}: split=${splitTime.toFixed(1)}ms`);
             } else {
               // No polygons found - mark all as normal
               finalIsolines = this.contourSplitter.splitContours(
