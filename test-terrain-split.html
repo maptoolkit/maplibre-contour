@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <title>Terrain-Split Contours Test</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
-    <script src="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
     <script src="dist/index.min.js"></script>
-    <link href="https://unpkg.com/maplibre-gl@4.6.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <link href="https://unpkg.com/maplibre-gl@5.6.0/dist/maplibre-gl.css" rel="stylesheet" />
     <style>
       body { margin: 0; padding: 0; }
       #map { position: absolute; top: 0; bottom: 0; width: 100%; }
@@ -125,7 +125,7 @@
               type: "raster",
               source: "osm",
               paint: { "raster-opacity": 0.6 },
-              layout: {"visibility": "visible"}
+              layout: {"visibility": "none"}
             },
             {
                 id: "nature_glacier",
@@ -137,7 +137,8 @@
                 maxzoom: 22,
                 layout: {"visibility": "visible"},
                 paint: {
-                    "fill-color": "hsla(210, 50%, 80%, 0.5)"
+                    "fill-color": "hsla(210, 50%, 80%, 0.5)",
+                    "fill-outline-color": "hsla(210, 50%, 60%, 1)"
                 }
             },
             {
@@ -150,7 +151,8 @@
                 maxzoom: 22,
                 layout: {"visibility": "visible"},
                 paint: {
-                    "fill-color": "hsla(0, 10%, 80%, 0.5)"
+                    "fill-color": "hsla(0, 10%, 80%, 0.5)",
+                    "fill-outline-color": "hsla(0, 10%, 60%, 1)"
                 }
             },
             {
@@ -158,10 +160,58 @@
               type: "hillshade",
               source: "dem",
               paint: { 
-                "hillshade-exaggeration": 0.2,
+                "hillshade-exaggeration": 0.1,
                 "hillshade-shadow-color": "#000000"
               },
               layout: {"visibility": "visible"}
+            },
+            {
+                id: "color-relief",
+                type: "color-relief",
+                source: "dem",
+                paint: {
+                    "color-relief-opacity": 0.1,
+                    "color-relief-color": [
+                        'interpolate',
+                        ['linear'],
+                        ['elevation'],
+                        400, 'rgb(4, 0, 108)',
+                        582.35, 'rgb(5, 1, 154)',
+                        764.71, 'rgb(10, 21, 189)',
+                        947.06, 'rgb(16, 44, 218)',
+                        1129.41, 'rgb(24, 69, 240)',
+                        1311.76, 'rgb(20, 112, 193)',
+                        1494.12, 'rgb(39, 144, 116)',
+                        1676.47, 'rgb(57, 169, 29)',
+                        1858.82, 'rgb(111, 186, 5)',
+                        2041.18, 'rgb(160, 201, 4)',
+                        2223.53, 'rgb(205, 216, 2)',
+                        2405.88, 'rgb(244, 221, 4)',
+                        2588.24, 'rgb(251, 194, 14)',
+                        2770.59, 'rgb(252, 163, 21)',
+                        2952.94, 'rgb(253, 128, 20)',
+                        3135.29, 'rgb(254, 85, 14)',
+                        3317.65, 'rgb(243, 36, 13)',
+                        3500, 'rgb(215, 5, 13)'
+                    ]
+                },
+                layout: {"visibility": "none"}
+            },
+            {
+                id: "color-relief-2",
+                type: "color-relief",
+                source: "dem",
+                paint: {
+                    "color-relief-opacity": 0.4,
+                    "color-relief-color": [
+                        'interpolate',
+                        ['linear'],
+                        ['elevation'],
+                        400, 'black',
+                        3500, 'white'
+                    ]
+                },
+                layout: {"visibility": "visible"}
             },
             // Normal terrain contours (brown)
             {
