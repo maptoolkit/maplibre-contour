@@ -31,6 +31,9 @@ export interface FetchResponse {
   cacheControl?: string;
 }
 
+/** Contour splitting mode */
+export type SplitMode = 'classic' | 'no-split';
+
 /** Configuration for terrain-based contour splitting */
 export interface TerrainSplitOptions {
   /** URL pattern for vector tiles containing terrain polygons */
@@ -44,6 +47,9 @@ export interface TerrainSplitOptions {
     glacier?: string[];
     rock?: string[];
   };
+  
+  /** Contour splitting mode: 'classic' (split by terrain), 'no-split' (unsplit contours) */
+  splitMode?: SplitMode;
 }
 
 /** Polygon extracted from vector tile */

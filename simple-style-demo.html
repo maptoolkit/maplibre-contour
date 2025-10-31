@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MapLibre Contour - Style.json Demo</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <!-- MapLibre GL JS v5.0.0 (latest) -->
+    <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+    <!-- MapLibre Contour -->
+    <script src="dist/index.min.js"></script>
+    <style>
+      body { 
+        margin: 0; 
+        padding: 0; 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      #map { 
+        position: absolute; 
+        top: 0; 
+        bottom: 0; 
+        width: 100%; 
+      }
+      #info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        max-width: 300px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      #info h3 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      #info code {
+        background: #f5f5f5;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <script>
+      // Replace with your API key if needed
+      const API_KEY = "toursprung";
+
+      console.log('Creating DemSource...');
+      
+      // Create DEM source with terrain splitting
+      const demSource = new mlcontour.DemSource({
+        url: "https://elevation-tiles-prod.s3.amazonaws.com/terrarium/{z}/{x}/{y}.png",
+        encoding: "terrarium",
+        maxzoom: 13,
+        worker: true,
+        cacheSize: 100,
+        
+        // Vector tile configuration for terrain-based splitting
+        vectorTileUrl: `https://vtc-cdn.maptoolkit.net/mtk-bathymetry/{z}/{x}/{y}.pbf?api_key=${API_KEY}`,
+        vectorSourceLayer: 'natural',
+        vectorTerrainTypes: {
+          glacier: ['ice'],
+          rock: ['rock']
+        }
+      });
+
+      console.log('Registering protocols with MapLibre...');
+      // IMPORTANT: Register protocols BEFORE loading the style
+      demSource.setupMaplibre(maplibregl);
+
+      console.log('Creating map with style.json...');
+      // Now create the map and load the style
+      const map = new maplibregl.Map({
+        container: 'map',
+        style: 'style.json', // Load style from style.json file
+        hash: true // Enable URL hash for sharing map position
+      });
+
+      // Add navigation controls
+      map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+      // Log when map is loaded
+      map.on('load', () => {
+        console.log('Map loaded successfully!');
+        console.log('Contour protocol:', demSource.contourProtocolId);
+        console.log('Vector tile protocol:', demSource.vectorTileProtocolId);
+      });
+
+      // Log any errors
+      map.on('error', (e) => {
+        console.error('Map error:', e);
+      });
+
+      // Optional: Log when contour tiles are loaded
+      map.on('data', (e) => {
+        if (e.sourceId === 'contours' && e.isSourceLoaded) {
+          console.log('Contour source loaded');
+        }
+      });
+    </script>
+  </body>
+</html>

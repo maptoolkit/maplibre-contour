@@ -39,6 +39,7 @@ export function encodeOptions({
   vectorTileUrl,
   vectorSourceLayer,
   vectorTerrainTypes,
+  splitMode,
   ...rest
 }: GlobalContourTileOptions): string {
   const params: any = {
@@ -55,6 +56,9 @@ export function encodeOptions({
   }
   if (vectorTerrainTypes) {
     params.vectorTerrainTypes = JSON.stringify(vectorTerrainTypes);
+  }
+  if (splitMode) {
+    params.splitMode = splitMode;
   }
   
   return sortedEntries(params)

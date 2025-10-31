@@ -279,6 +279,7 @@ export class LocalDemManager implements DemManager {
       elevationKey = "ele",
       levelKey = "level",
       subsampleBelow = 100,
+      splitMode = 'classic', // Default to classic (terrain splitting enabled)
     } = options;
 
     // no levels means less than min zoom with levels specified
@@ -336,10 +337,13 @@ export class LocalDemManager implements DemManager {
 
         mark?.();
 
-        // ========== NEW CODE: Split by terrain polygons ==========
+        // ========== Split by terrain polygons based on splitMode ==========
         let finalIsolines: SplitContoursResult | { [elevation: number]: number[][] };
 
-        if (this.vectorTileLoader.isEnabled()) {
+        if (splitMode === 'no-split') {
+          // No splitting - use original unsplit contours
+          finalIsolines = isolines;
+        } else if (splitMode === 'classic' && this.vectorTileLoader.isEnabled()) {
           try {
             // Fetch vector tile for this coordinate
             const vectorTile = await this.fetchVectorTile(
@@ -375,7 +379,7 @@ export class LocalDemManager implements DemManager {
             );
           }
         } else {
-          // Vector tiles not configured - use original isolines
+          // splitMode is 'classic' but vector tiles not configured - use original isolines
           finalIsolines = isolines;
         }
 
