@@ -419,6 +419,9 @@ export class LocalDemManager implements DemManager {
       const level = Math.max(
         ...levels.map((l, i) => (ele % l === 0 ? i : 0))
       );
+      
+      // Calculate divisor: the threshold value this elevation is derived from
+      const divisor = levels[level];
 
       // Check if segments are classified (have terrainType)
       if (Array.isArray(segments) && segments.length > 0) {
@@ -433,6 +436,7 @@ export class LocalDemManager implements DemManager {
               properties: {
                 [elevationKey]: ele,
                 [levelKey]: level,
+                divisor: divisor,
                 terrain_type: segment.terrainType
               }
             });
@@ -446,6 +450,7 @@ export class LocalDemManager implements DemManager {
               properties: {
                 [elevationKey]: ele,
                 [levelKey]: level,
+                divisor: divisor,
                 terrain_type: 'normal'
               }
             });
