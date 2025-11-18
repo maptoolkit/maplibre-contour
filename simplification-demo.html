@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>MapLibre Contour - Simplification Demo</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+    <!-- MapLibre Contour -->
+    <script src="dist/index.min.js"></script>
+    <style>
+      body { 
+        margin: 0; 
+        padding: 0; 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      #map { 
+        position: absolute; 
+        top: 0; 
+        bottom: 0; 
+        width: 100%; 
+      }
+      #controls {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        max-width: 320px;
+        font-size: 13px;
+        line-height: 1.5;
+        z-index: 1;
+      }
+      #controls h3 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      #controls label {
+        display: block;
+        margin: 10px 0 5px 0;
+        font-weight: 500;
+      }
+      #controls input[type="range"] {
+        width: 100%;
+        margin: 5px 0;
+      }
+      #controls .value-display {
+        background: #f5f5f5;
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-family: monospace;
+        display: inline-block;
+        min-width: 40px;
+        text-align: center;
+      }
+      #controls .description {
+        color: #666;
+        font-size: 12px;
+        margin-top: 5px;
+      }
+      #performance {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        background: rgba(255, 255, 255, 0.9);
+        padding: 10px 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        font-size: 12px;
+        font-family: monospace;
+        z-index: 1;
+      }
+      #performance .metric {
+        margin: 3px 0;
+      }
+      #performance .label {
+        font-weight: 600;
+        color: #333;
+      }
+      #performance .value {
+        color: #0066cc;
+      }
+      button {
+        background: #0066cc;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        margin-top: 10px;
+        width: 100%;
+      }
+      button:hover {
+        background: #0052a3;
+      }
+      button:active {
+        background: #004080;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="controls">
+      <h3>🔧 Contour Simplification</h3>
+      <label>
+        Simplify Tolerance
+        <span class="value-display" id="simplifyValue">1.0</span>
+      </label>
+      <input type="range" id="simplifySlider" min="0" max="5" step="0.1" value="1" />
+      <div class="description">
+        Higher values = more simplification (better performance, less detail)
+      </div>
+      
+      <button id="applyButton">Apply & Reload</button>
+      
+      <div class="description" style="margin-top: 15px;">
+        <strong>✓ Terrain splitting enabled</strong><br>
+        Glaciers (blue) and rock (gray) areas shown.<br><br>
+        <strong>Open the browser console</strong> to see detailed performance metrics for each tile.
+      </div>
+    </div>
+
+    <div id="performance">
+      <div class="metric">
+        <span class="label">Current Tolerance:</span>
+        <span class="value" id="currentTolerance">1.0</span>
+      </div>
+      <div class="metric">
+        <span class="label">Tiles Loaded:</span>
+        <span class="value" id="tilesLoaded">0</span>
+      </div>
+    </div>
+
+    <script>
+      let currentSimplify = 1.0;
+      let tilesLoaded = 0;
+
+      // Create DEM source with terrain splitting enabled
+      const demSource = new mlcontour.DemSource({
+        url: "https://data.maptoolkit.net/maptoolkit/terrainrgb/{z}/{x}/{y}.webp?api_key=iib",
+        encoding: "terrarium",
+        maxzoom: 16,
+        worker: true,
+        cacheSize: 100,
+        
+        // Enable terrain-based contour splitting
+        vectorTileUrl: 'https://data.maptoolkit.net/maptoolkit/mtk_vtc1/{z}/{x}/{y}.pbf?api_key=iib',
+        vectorSourceLayer: 'natural',
+        vectorTerrainTypes: {
+          glacier: ['ice'],
+          rock: ['rock']
+        }
+      });
+
+      // Register protocols
+      demSource.setupMaplibre(maplibregl);
+
+      // Create map
+      const map = new maplibregl.Map({
+        container: 'map',
+        center: [7.5, 46.0], // Swiss Alps
+        zoom: 12,
+        hash: true,
+        style: {
+          version: 8,
+          sources: {
+            'terrain-polygons': {
+              type: 'vector',
+              tiles: [demSource.vectorTileProtocolUrl],
+              minzoom: 0,
+              maxzoom: 14
+            },
+            'contours': {
+              type: 'vector',
+              tiles: [
+                demSource.contourProtocolUrl({
+                    thresholds: {
+                        11: [200, 1000],
+                        12: [100, 500, 1000],
+                        13: [50, 200, 500, 1000],
+                        14: [20, 100, 500, 1000]
+                    },
+                    splitMode: "classic",
+                    simplify: currentSimplify
+                })
+              ],
+              maxzoom: 14
+            }
+          },
+          layers: [
+            {
+              id: 'glacier',
+              type: 'fill',
+              source: 'terrain-polygons',
+              'source-layer': 'natural',
+              filter: ['==', ['get', 'type'], 'ice'],
+              paint: {
+                'fill-color': 'rgba(200, 230, 255, 0.3)',
+                'fill-outline-color': 'rgba(150, 200, 255, 0.6)'
+              }
+            },
+            {
+              id: 'rock',
+              type: 'fill',
+              source: 'terrain-polygons',
+              'source-layer': 'natural',
+              filter: ['==', ['get', 'type'], 'rock'],
+              paint: {
+                'fill-color': 'rgba(150, 150, 150, 0.2)',
+                'fill-outline-color': 'rgba(100, 100, 100, 0.5)'
+              }
+            },
+            {
+                id: 'contours-minor',
+                type: 'line',
+                source: 'contours',
+                'source-layer': 'contours',
+                filter: [
+                        '!=',
+                        [
+                        'get',
+                        'ele'
+                        ],
+                        0
+                    ],
+                paint: {
+                    'line-color': [
+                        'case',
+                        [
+                        '==',
+                        [
+                            'get',
+                            'terrain_type'
+                        ],
+                        'normal'
+                        ],
+                        'hsla(33.75, 40%, 45%, 0.7)',
+                        [
+                        '==',
+                        [
+                            'get',
+                            'terrain_type'
+                        ],
+                        'glacier'
+                        ],
+                        'hsla(191.25, 60%, 45%, 0.7)',
+                        'hsla(78.75, 0%, 45%, 0.7)'
+                    ],
+                    'line-width': [
+                        'interpolate',
+                        [
+                        'exponential',
+                        1.2
+                        ],
+                        [
+                        'zoom'
+                        ],
+                        11,
+                        [
+                        'case',
+                        [
+                            'in',
+                            [
+                            'get',
+                            'divisor'
+                            ],
+                            [
+                            'literal',
+                            [
+                                500,
+                                1000
+                            ]
+                            ]
+                        ],
+                        0.51,
+                        [
+                            'in',
+                            [
+                            'get',
+                            'divisor'
+                            ],
+                            [
+                            'literal',
+                            [
+                                100,
+                                200
+                            ]
+                            ]
+                        ],
+                        0.31,
+                        [
+                            'in',
+                            [
+                            'get',
+                            'divisor'
+                            ],
+                            [
+                            'literal',
+                            [
+                                0,
+                                10,
+                                20,
+                                50
+                            ]
+                            ]
+                        ],
+                        0.16,
+                        0
+                        ],
+                        16,
+                        [
+                        'case',
+                        [
+                            'in',
+                            [
+                            'get',
+                            'divisor'
+                            ],
+                            [
+                            'literal',
+                            [
+                                500,
+                                1000
+                            ]
+                            ]
+                        ],
+                        2.54,
+                        [
+                            'in',
+                            [
+                            'get',
+                            'divisor'
+                            ],
+                            [
+                            'literal',
+                            [
+                                100,
+                                200
+                            ]
+                            ]
+                        ],
+                        1.53,
+                        [
+                            'in',
+                            [
+                            'get',
+                            'divisor'
+                            ],
+                            [
+                            'literal',
+                            [
+                                0,
+                                10,
+                                20,
+                                50
+                            ]
+                            ]
+                        ],
+                        0.78,
+                        0
+                        ]
+                    ]
+                }
+            },
+            {
+              id: 'contours-labels',
+              type: 'symbol',
+              source: 'contours',
+              'source-layer': 'contours',
+              filter: ['>', ['get', 'level'], 0],
+              layout: {
+                'symbol-placement': 'line',
+                'text-field': ['concat', ['get', 'ele'], 'm'],
+                'text-size': 10,
+                'text-font': ['Open Sans Regular']
+              },
+              paint: {
+                'text-color': '#8B4513',
+                'text-halo-color': 'white',
+                'text-halo-width': 1
+              }
+            }
+          ]
+        }
+      });
+
+      // Add controls
+      map.addControl(new maplibregl.NavigationControl(), 'top-right');
+
+      // Update slider display
+      document.getElementById('simplifySlider').addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        document.getElementById('simplifyValue').textContent = value.toFixed(1);
+      });
+
+      // Apply button handler
+      document.getElementById('applyButton').addEventListener('click', () => {
+        currentSimplify = parseFloat(document.getElementById('simplifySlider').value);
+        document.getElementById('currentTolerance').textContent = currentSimplify.toFixed(1);
+        
+        // Reset counter
+        tilesLoaded = 0;
+        document.getElementById('tilesLoaded').textContent = tilesLoaded;
+
+        console.log(`\n========== Applying simplify=${currentSimplify} ==========\n`);
+        
+        // Update the source (remove layers in reverse order)
+        map.removeLayer('contours-labels');
+        map.removeLayer('contours-minor');
+        map.removeLayer('rock');
+        map.removeLayer('glacier');
+        map.removeSource('contours');
+        map.removeSource('terrain-polygons');
+        
+        // Re-add terrain polygons source
+        map.addSource('terrain-polygons', {
+          type: 'vector',
+          tiles: [demSource.vectorTileProtocolUrl],
+          minzoom: 0,
+          maxzoom: 14
+        });
+        
+        // Re-add contours source
+        map.addSource('contours', {
+          type: 'vector',
+          tiles: [
+            demSource.contourProtocolUrl({
+              thresholds: {
+                11: [200, 1000],
+                12: [100, 500, 1000],
+                13: [50, 200, 500, 1000],
+                14: [20, 100, 500, 1000]
+              },
+              splitMode: "classic",
+              simplify: currentSimplify
+            })
+          ],
+          maxzoom: 14
+        });
+
+        // Re-add terrain polygon layers
+        map.addLayer({
+          id: 'glacier',
+          type: 'fill',
+          source: 'terrain-polygons',
+          'source-layer': 'natural',
+          filter: ['==', ['get', 'type'], 'ice'],
+          paint: {
+            'fill-color': 'rgba(200, 230, 255, 0.3)',
+            'fill-outline-color': 'rgba(150, 200, 255, 0.6)'
+          }
+        });
+
+        map.addLayer({
+          id: 'rock',
+          type: 'fill',
+          source: 'terrain-polygons',
+          'source-layer': 'natural',
+          filter: ['==', ['get', 'type'], 'rock'],
+          paint: {
+            'fill-color': 'rgba(150, 150, 150, 0.2)',
+            'fill-outline-color': 'rgba(100, 100, 100, 0.5)'
+          }
+        });
+
+        // Re-add contour layer
+        map.addLayer({
+          id: 'contours-minor',
+          type: 'line',
+          source: 'contours',
+          'source-layer': 'contours',
+          filter: [
+                '!=',
+                [
+                  'get',
+                  'ele'
+                ],
+                0
+              ],
+          paint: {
+            'line-color': [
+                'case',
+                [
+                '==',
+                [
+                    'get',
+                    'terrain_type'
+                ],
+                'normal'
+                ],
+                'hsla(33.75, 40%, 45%, 0.7)',
+                [
+                '==',
+                [
+                    'get',
+                    'terrain_type'
+                ],
+                'glacier'
+                ],
+                'hsla(191.25, 60%, 45%, 0.7)',
+                'hsla(78.75, 0%, 45%, 0.7)'
+            ],
+            'line-width': [
+                'interpolate',
+                [
+                'exponential',
+                1.2
+                ],
+                [
+                'zoom'
+                ],
+                11,
+                [
+                'case',
+                [
+                    'in',
+                    [
+                    'get',
+                    'divisor'
+                    ],
+                    [
+                    'literal',
+                    [
+                        500,
+                        1000
+                    ]
+                    ]
+                ],
+                0.51,
+                [
+                    'in',
+                    [
+                    'get',
+                    'divisor'
+                    ],
+                    [
+                    'literal',
+                    [
+                        100,
+                        200
+                    ]
+                    ]
+                ],
+                0.31,
+                [
+                    'in',
+                    [
+                    'get',
+                    'divisor'
+                    ],
+                    [
+                    'literal',
+                    [
+                        0,
+                        10,
+                        20,
+                        50
+                    ]
+                    ]
+                ],
+                0.16,
+                0
+                ],
+                16,
+                [
+                'case',
+                [
+                    'in',
+                    [
+                    'get',
+                    'divisor'
+                    ],
+                    [
+                    'literal',
+                    [
+                        500,
+                        1000
+                    ]
+                    ]
+                ],
+                2.54,
+                [
+                    'in',
+                    [
+                    'get',
+                    'divisor'
+                    ],
+                    [
+                    'literal',
+                    [
+                        100,
+                        200
+                    ]
+                    ]
+                ],
+                1.53,
+                [
+                    'in',
+                    [
+                    'get',
+                    'divisor'
+                    ],
+                    [
+                    'literal',
+                    [
+                        0,
+                        10,
+                        20,
+                        50
+                    ]
+                    ]
+                ],
+                0.78,
+                0
+                ]
+            ]
+          }
+        });
+
+        map.addLayer({
+          id: 'contours-labels',
+          type: 'symbol',
+          source: 'contours',
+          'source-layer': 'contours',
+          filter: ['>', ['get', 'level'], 0],
+          layout: {
+            'symbol-placement': 'line',
+            'text-field': ['concat', ['get', 'ele'], 'm'],
+            'text-size': 10,
+            'text-font': ['Open Sans Regular']
+          },
+          paint: {
+            'text-color': '#8B4513',
+            'text-halo-color': 'white',
+            'text-halo-width': 1
+          }
+        });
+      });
+
+      // Monitor tile loading
+      map.on('data', (e) => {
+        if (e.sourceId === 'contours' && e.tile) {
+          tilesLoaded++;
+          document.getElementById('tilesLoaded').textContent = tilesLoaded;
+        }
+      });
+
+      // Intercept console.log to highlight performance logs
+      const originalLog = console.log;
+      console.log = function(...args) {
+        originalLog.apply(console, args);
+        
+        // Look for contour performance logs
+        const message = args.join(' ');
+        if (message.includes('[Contour]')) {
+          // Highlight performance logs
+          originalLog('📊', message);
+        }
+      };
+
+      map.on('load', () => {
+        console.log('🗺️ Map loaded! Terrain splitting enabled (glaciers & rock areas).');
+        console.log('💡 Adjust the simplification slider and click "Apply & Reload" to see the effect.');
+        console.log('� Performance logs show: [Contour] tile_id | Isoline | Simplify | Split | Vertices | Total');
+        console.log('   Example: [Contour] 12/2145/1432 | Isoline: 45.2ms | Simplify (t=1): 23.1ms | Split: 12.5ms (3 polygons) | Vertices: 15234 → 8421 (-44.7%) | Total: 80.8ms');
+      });
+    </script>
+  </body>
+</html>

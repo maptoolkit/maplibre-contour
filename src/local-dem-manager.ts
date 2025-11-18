@@ -3,6 +3,7 @@ import defaultDecodeImage from "./decode-image";
 import { HeightTile } from "./height-tile";
 import generateIsolines from "./isolines";
 import { encodeIndividualOptions, isAborted, withTimeout } from "./utils";
+import * as turf from '@turf/turf';
 import type {
   ContourTile,
   DecodeImageFunction,
@@ -280,6 +281,7 @@ export class LocalDemManager implements DemManager {
       levelKey = "level",
       subsampleBelow = 100,
       splitMode = 'classic', // Default to classic (terrain splitting enabled)
+      simplify = 1, // Default tolerance for Douglas-Peucker simplification
     } = options;
 
     // no levels means less than min zoom with levels specified
@@ -337,12 +339,19 @@ export class LocalDemManager implements DemManager {
 
         mark?.();
 
+        // ========== Simplify contour lines if enabled ==========
+        let simplifiedIsolines = isolines;
+        
+        if (simplify && simplify > 0) {
+          simplifiedIsolines = this.simplifyIsolines(isolines, simplify, extent);
+        }
+
         // ========== Split by terrain polygons based on splitMode ==========
         let finalIsolines: SplitContoursResult | { [elevation: number]: number[][] };
 
         if (splitMode === 'no-split') {
-          // No splitting - use original unsplit contours
-          finalIsolines = isolines;
+          // No splitting - use simplified unsplit contours
+          finalIsolines = simplifiedIsolines;
         } else if (splitMode === 'classic' && this.vectorTileLoader.isEnabled()) {
           try {
             // Fetch vector tile for this coordinate
@@ -352,9 +361,9 @@ export class LocalDemManager implements DemManager {
             );
 
             if (vectorTile.polygons.length > 0) {
-              // Split contours by polygons
+              // Split simplified contours by polygons
               finalIsolines = this.contourSplitter.splitContours(
-                isolines,
+                simplifiedIsolines,
                 vectorTile.polygons,
                 extent,
                 z
@@ -362,7 +371,7 @@ export class LocalDemManager implements DemManager {
             } else {
               // No polygons found - mark all as normal
               finalIsolines = this.contourSplitter.splitContours(
-                isolines,
+                simplifiedIsolines,
                 [],
                 extent,
                 z
@@ -372,15 +381,15 @@ export class LocalDemManager implements DemManager {
             console.warn('Error during terrain splitting:', error);
             // Fallback: mark all as normal
             finalIsolines = this.contourSplitter.splitContours(
-              isolines,
+              simplifiedIsolines,
               [],
               extent,
               z
             );
           }
         } else {
-          // splitMode is 'classic' but vector tiles not configured - use original isolines
-          finalIsolines = isolines;
+          // splitMode is 'classic' but vector tiles not configured - use simplified isolines
+          finalIsolines = simplifiedIsolines;
         }
 
         const result = encodeVectorTile({
@@ -403,6 +412,65 @@ export class LocalDemManager implements DemManager {
       },
       parentAbortController,
     );
+  }
+
+  /**
+   * Simplify contour lines using turf.js Douglas-Peucker algorithm
+   * Converts flat coordinate arrays to GeoJSON, simplifies, and converts back
+   */
+  private simplifyIsolines(
+    isolines: { [elevation: number]: number[][] },
+    tolerance: number,
+    extent: number
+  ): { [elevation: number]: number[][] } {
+    const simplified: { [elevation: number]: number[][] } = {};
+    
+    for (const [elevationStr, lineStrings] of Object.entries(isolines)) {
+      const elevation = Number(elevationStr);
+      simplified[elevation] = [];
+      
+      for (const coords of lineStrings) {
+        // Convert flat array [x1,y1,x2,y2,...] to turf LineString
+        const positions: [number, number][] = [];
+        for (let i = 0; i < coords.length; i += 2) {
+          // Normalize coordinates to 0-1 range for simplification
+          positions.push([coords[i] / extent, coords[i + 1] / extent]);
+        }
+        
+        if (positions.length < 2) {
+          // Skip invalid lines
+          continue;
+        }
+        
+        try {
+          const line = turf.lineString(positions);
+          const simplifiedLine = turf.simplify(line, { 
+            tolerance: tolerance / extent, // Normalize tolerance to 0-1 range
+            highQuality: false // Use faster Radial Distance algorithm
+          });
+          
+          // Convert back to flat array in tile coordinates
+          const simplifiedCoords: number[] = [];
+          for (const pos of simplifiedLine.geometry.coordinates) {
+            simplifiedCoords.push(
+              Math.round(pos[0] * extent),
+              Math.round(pos[1] * extent)
+            );
+          }
+          
+          // Only add if we still have a valid line after simplification
+          if (simplifiedCoords.length >= 4) { // At least 2 points
+            simplified[elevation].push(simplifiedCoords);
+          }
+        } catch (error) {
+          // If simplification fails, keep the original line
+          console.warn('Failed to simplify contour line:', error);
+          simplified[elevation].push(coords);
+        }
+      }
+    }
+    
+    return simplified;
   }
 
   // NEW: Create features with terrain_type property

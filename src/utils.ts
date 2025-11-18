@@ -86,6 +86,7 @@ export function decodeOptions(options: string): GlobalContourTileOptions {
           case "multiplier":
           case "overzoom":
           case "buffer":
+          case "simplify":
             v = Number(v);
             break;
           case "vectorTerrainTypes":

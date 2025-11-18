@@ -57,12 +57,12 @@
       var demSource = new mlcontour.DemSource({
         url: "https://data.maptoolkit.net/maptoolkit/terrainrgb/{z}/{x}/{y}.webp?api_key=iib",
         encoding: "terrarium",
-        maxzoom: 13,
+        maxzoom: 16,
         worker: true,
         cacheSize: 100,
         
         // Enable terrain-based contour splitting
-        vectorTileUrl: `https://vtc-cdn.maptoolkit.net/mtk-contours-bathymetry/{z}/{x}/{y}.pbf?api_key=${API_KEY}`,
+        vectorTileUrl: `https://data.maptoolkit.net/maptoolkit/mtk_vtc1/{z}/{x}/{y}.pbf?api_key=iib`,
         vectorSourceLayer: 'natural',
         vectorTerrainTypes: {
           glacier: ['ice'],      // type=ice for glaciers
@@ -79,19 +79,13 @@
         hash: true,
         style: {
           version: 8,
-          glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+          glyphs: "https://static.maptoolkit.net/fonts/{fontstack}/{range}.pbf",
           sources: {
             mtk: {
                 type: "vector",
                 tiles: [demSource.vectorTileProtocolUrl],
                 minzoom: 0,
                 maxzoom: 14
-            },
-            osm: {
-              type: "raster",
-              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-              tileSize: 256,
-              attribution: '© OpenStreetMap'
             },
             dem: {
               type: "raster-dem",

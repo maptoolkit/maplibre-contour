@@ -114,6 +114,12 @@ export interface ContourTileOptions {
   buffer?: number;
   /** When overzooming tiles, subsample to scale up to at least this size to make the contour lines smoother at higher zooms. */
   subsampleBelow?: number;
+  /** 
+   * Tolerance for simplifying contour lines using Douglas-Peucker algorithm (default 1).
+   * Set to 0 or false to disable simplification. Higher values = more simplification.
+   * Applied after isoline generation but before terrain splitting.
+   */
+  simplify?: number;
 }
 
 export interface GlobalContourTileOptions extends ContourTileOptions {
